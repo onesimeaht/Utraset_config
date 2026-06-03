@@ -1,0 +1,77 @@
+services:
+  pharmavigilence-app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    volumes:
+      - .:/var/www
+    depends_on:
+      pharmavigilence-db:
+        condition: service_healthy
+    networks:
+      - pharmavigilence_network
+
+  pharmavigilence-nginx:
+    image: nginx:alpine
+    ports:
+      - "8082:80"
+    volumes:
+      - .:/var/www
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - pharmavigilence-app
+    networks:
+      - pharmavigilence_network
+
+  pharmavigilence-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pharmavigilence
+      POSTGRES_USER: pharmavigilence_user
+      POSTGRES_PASSWORD: pharmavigilence_secret
+    ports:
+      - "5435:5432"
+    volumes:
+      - pharmavigilence_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pharmavigilence_user -d pharmavigilence"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pharmavigilence_network
+
+  pharmavigilence-redis:
+    image: redis:alpine
+    networks:
+      - pharmavigilence_network
+
+  superset:
+    build:
+      context: .
+      dockerfile: Superset.Dockerfile
+    ports:
+      - "${SUPERSET_PORT:-8088}:8088"
+    environment:
+      SUPERSET_SECRET_KEY: "super-secret-key-change-me"
+      SUPERSET_PORT: 8088
+      SUPERSET_FEATURE_FLAGS: '{"EMBEDDED_SUPERSET": True}'
+      SUPERSET_CORS_OPTIONS: '{"origins": ["*"]}'
+      ENABLE_CORS: "True"
+      SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+    volumes:
+      - superset_home_data:/app/superset_home
+      - ./docker/superset/superset_config.py:/app/pythonpath/superset_config.py
+      - ./docker/superset/list_dashboards.sh:/tmp/list_dashboards.sh
+    depends_on:
+      - pharmavigilence-db
+      - pharmavigilence-redis
+    networks:
+      - pharmavigilence_network
+
+networks:
+  pharmavigilence_network:
+
+volumes:
+  pharmavigilence_db_data:
+  superset_home_data:
